@@ -1,15 +1,9 @@
 package tymoteusz.kunicki;
+
+import java.util.Scanner;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-// Stan w jakim znajduje się filozof
-enum PhilosophersState {
-    THINKING,
-    HUNGRY,
-    EATING
-}
-
-// Klasa reprezentująca współdzielony zasób (widelec)
 class Fork {
     private final int id;
     private final Lock lock;
@@ -19,12 +13,10 @@ class Fork {
         this.lock = new ReentrantLock();
     }
 
-    // Blokuje zasób
-    public void pickUp() {
-        lock.lock();
+    public void pickUp() throws InterruptedException {
+        lock.lockInterruptibly();
     }
 
-    // Zwalnia zasób
     public void putDown() {
         lock.unlock();
     }
@@ -34,7 +26,6 @@ class Fork {
     }
 }
 
-// Klasa Arbitra / Kelnera, który zapobiega zakleszczeniom
 class Waiter {
     private int currentEating;
     private final int maxAllowed;
@@ -44,7 +35,6 @@ class Waiter {
         this.maxAllowed = maxAllowed;
     }
 
-    // Filozof wywołuje to, aby poprosić o pozwolenie na jedzenie
     public synchronized void askForPermission() throws InterruptedException {
         while (currentEating >= maxAllowed) {
             wait();
@@ -52,24 +42,25 @@ class Waiter {
         currentEating++;
     }
 
-    // Filozof wywołuje to po zakończeniu jedzenia
     public synchronized void releaseForks() {
         currentEating--;
         notifyAll();
     }
 }
 
-// Klasa reprezentująca Filozofa (działa jako osobny wątek)
 class Philosopher extends Thread {
     private final int id;
-    private PhilosophersState philosophersState;
     private final Fork leftFork;
     private final Fork rightFork;
     private final Waiter waiter;
 
+    // Flaga sterująca działaniem wątku
+    private volatile boolean running = true;
+    // Zmienna przechowująca łączny czas jedzenia (w milisekundach)
+    private long totalEatingTime = 0;
+
     public Philosopher(int id, Fork leftFork, Fork rightFork, Waiter waiter) {
         this.id = id;
-        this.philosophersState = PhilosophersState.THINKING;
         this.leftFork = leftFork;
         this.rightFork = rightFork;
         this.waiter = waiter;
@@ -78,27 +69,24 @@ class Philosopher extends Thread {
     @Override
     public void run() {
         try {
-            // Pętla symulująca ciągłe życie filozofa
-            while (true) {
+            while (running) {
                 think();
-
-                changePhilosophersState(PhilosophersState.HUNGRY);
-                System.out.println("Filozof " + id + " jest głodny i prosi kelnera o pozwolenie.");
-
                 waiter.askForPermission();
-
-                // Gdy kelner pozwoli, podnosimy widelce
-                leftFork.pickUp();
-                rightFork.pickUp();
-
-                eat();
-
-                // Po jedzeniu odkładamy widelce
-                leftFork.putDown();
-                rightFork.putDown();
-
-                // Informujemy kelnera
-                waiter.releaseForks();
+                try {
+                    leftFork.pickUp();
+                    try {
+                        rightFork.pickUp();
+                        try {
+                            eat();
+                        } finally {
+                            rightFork.putDown();
+                        }
+                    } finally {
+                        leftFork.putDown();
+                    }
+                } finally {
+                    waiter.releaseForks();
+                }
             }
         } catch (InterruptedException e) {
             System.out.println("Filozof " + id + " został przerwany.");
@@ -107,28 +95,52 @@ class Philosopher extends Thread {
     }
 
     private void think() throws InterruptedException {
-        changePhilosophersState(PhilosophersState.THINKING);
         System.out.println("Filozof " + id + " myśli.");
-        // Symulacja myślenia (losowy czas do 1000 ms)
-        Thread.sleep((long) (Math.random() * 1000));
+        Thread.sleep((long) (Math.random() * 50)); // Krótszy czas usypiania dla większej liczby operacji
     }
 
     private void eat() throws InterruptedException {
-        changePhilosophersState(PhilosophersState.EATING);
+        long start = System.currentTimeMillis();
+        long eatDuration = (long) (Math.random() * 50);
+
         System.out.println("Filozof " + id + " je (widelce: " + leftFork.getId() + " i " + rightFork.getId() + ").");
-        // Symulacja jedzenia (losowy czas do 1000 ms)
-        Thread.sleep((long) (Math.random() * 1000));
+        Thread.sleep(eatDuration);
+
+        long end = System.currentTimeMillis();
+        totalEatingTime += (end - start);
     }
 
-    public void changePhilosophersState(PhilosophersState newPhilosophersState) {
-        this.philosophersState = newPhilosophersState;
+    public void stopPhilosopher() {
+        running = false;
+        this.interrupt(); // Przerywamy ewentualne oczekiwanie w sleep/wait
+    }
+
+    public long getTotalEatingTime() {
+        return totalEatingTime;
+    }
+
+    public int getPhilosopherId() {
+        return id;
     }
 }
 
-// Klasa główna testująca rozwiązanie
 public class DiningPhilosophers {
-    public static void main(String[] args) {
-        int numberOfPhilosophers = 5;
+    static void main(String[] args) throws InterruptedException {
+        Scanner scanner = new Scanner(System.in);
+
+        System.out.print("Podaj liczbę filozofów: ");
+        int numberOfPhilosophers = scanner.nextInt();
+
+        if (numberOfPhilosophers < 2) {
+            System.out.println("Do uruchomienia symulacji potrzeba co najmniej 2 filozofów.");
+            return;
+        }
+
+        System.out.print("Podaj czas działania programu (w sekundach): ");
+        double runTimeMinutes = scanner.nextDouble();
+        long runTimeMillis = (long) (runTimeMinutes * 1000);
+
+        System.out.println("Uruchamianie symulacji na " + runTimeMinutes + " min...");
 
         Fork[] forks = new Fork[numberOfPhilosophers];
         for (int i = 0; i < numberOfPhilosophers; i++) {
@@ -141,9 +153,31 @@ public class DiningPhilosophers {
         for (int i = 0; i < numberOfPhilosophers; i++) {
             Fork leftFork = forks[i];
             Fork rightFork = forks[(i + 1) % numberOfPhilosophers];
-
             philosophers[i] = new Philosopher(i, leftFork, rightFork, waiter);
             philosophers[i].start();
         }
+
+        // Czekanie na zakończenie wyznaczonego czasu
+        Thread.sleep(runTimeMillis);
+
+        System.out.println("Zatrzymywanie symulacji...");
+
+        // Wysyłanie sygnału stopu do wszystkich filozofów
+        for (Philosopher p : philosophers) {
+            p.stopPhilosopher();
+        }
+
+        // Oczekiwanie na bezpieczne zakończenie wszystkich wątków
+        for (Philosopher p : philosophers) {
+            p.join();
+        }
+
+        // Wyświetlenie wyników w formacie CSV
+        System.out.println("ID_Filozofa, LacznyCzasJedzenia_ms");
+        for (Philosopher p : philosophers) {
+            System.out.println(p.getPhilosopherId() + "," + p.getTotalEatingTime());
+        }
+
+        scanner.close();
     }
 }
