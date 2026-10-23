@@ -26,44 +26,18 @@ class Fork {
     }
 }
 
-class Waiter {
-    private int currentEating;
-    private final int maxAllowed;
-
-    public Waiter(int maxAllowed) {
-        this.currentEating = 0;
-        this.maxAllowed = maxAllowed;
-    }
-
-    public synchronized void askForPermission() throws InterruptedException {
-        while (currentEating >= maxAllowed) {
-            wait();
-        }
-        currentEating++;
-    }
-
-    public synchronized void releaseForks() {
-        currentEating--;
-        notifyAll();
-    }
-}
-
 class Philosopher extends Thread {
     private final int id;
     private final Fork leftFork;
     private final Fork rightFork;
-    private final Waiter waiter;
 
-    // Flaga sterująca działaniem wątku
     private volatile boolean running = true;
-    // Zmienna przechowująca łączny czas jedzenia (w milisekundach)
     private long totalEatingTime = 0;
 
-    public Philosopher(int id, Fork leftFork, Fork rightFork, Waiter waiter) {
+    public Philosopher(int id, Fork leftFork, Fork rightFork) {
         this.id = id;
         this.leftFork = leftFork;
         this.rightFork = rightFork;
-        this.waiter = waiter;
     }
 
     @Override
@@ -71,21 +45,16 @@ class Philosopher extends Thread {
         try {
             while (running) {
                 think();
-                waiter.askForPermission();
+                leftFork.pickUp();
                 try {
-                    leftFork.pickUp();
+                    rightFork.pickUp();
                     try {
-                        rightFork.pickUp();
-                        try {
-                            eat();
-                        } finally {
-                            rightFork.putDown();
-                        }
+                        eat();
                     } finally {
-                        leftFork.putDown();
+                        rightFork.putDown();
                     }
                 } finally {
-                    waiter.releaseForks();
+                    leftFork.putDown();
                 }
             }
         } catch (InterruptedException e) {
@@ -147,13 +116,11 @@ public class DiningPhilosophers {
             forks[i] = new Fork(i);
         }
 
-        Waiter waiter = new Waiter(numberOfPhilosophers - 1);
-
         Philosopher[] philosophers = new Philosopher[numberOfPhilosophers];
         for (int i = 0; i < numberOfPhilosophers; i++) {
             Fork leftFork = forks[i];
             Fork rightFork = forks[(i + 1) % numberOfPhilosophers];
-            philosophers[i] = new Philosopher(i, leftFork, rightFork, waiter);
+            philosophers[i] = new Philosopher(i, leftFork, rightFork);
             philosophers[i].start();
         }
 
