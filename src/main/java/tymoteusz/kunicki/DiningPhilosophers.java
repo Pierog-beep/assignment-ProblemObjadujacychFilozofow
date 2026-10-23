@@ -10,7 +10,7 @@ class Fork {
 
     public Fork(int id) {
         this.id = id;
-        this.lock = new ReentrantLock();
+        this.lock = new ReentrantLock(true);
     }
 
     public void pickUp() throws InterruptedException {
@@ -26,44 +26,29 @@ class Fork {
     }
 }
 
-class Waiter {
-    private int currentEating;
-    private final int maxAllowed;
-
-    public Waiter(int maxAllowed) {
-        this.currentEating = 0;
-        this.maxAllowed = maxAllowed;
-    }
-
-    public synchronized void askForPermission() throws InterruptedException {
-        while (currentEating >= maxAllowed) {
-            wait();
-        }
-        currentEating++;
-    }
-
-    public synchronized void releaseForks() {
-        currentEating--;
-        notifyAll();
-    }
-}
-
 class Philosopher extends Thread {
     private final int id;
     private final Fork leftFork;
     private final Fork rightFork;
-    private final Waiter waiter;
 
-    // Flaga sterująca działaniem wątku
+    private final Fork firstFork;
+    private final Fork secondFork;
+
     private volatile boolean running = true;
-    // Zmienna przechowująca łączny czas jedzenia (w milisekundach)
     private long totalEatingTime = 0;
 
-    public Philosopher(int id, Fork leftFork, Fork rightFork, Waiter waiter) {
+    public Philosopher(int id, Fork leftFork, Fork rightFork) {
         this.id = id;
         this.leftFork = leftFork;
         this.rightFork = rightFork;
-        this.waiter = waiter;
+
+        if (leftFork.getId() < rightFork.getId()) {
+            this.firstFork = leftFork;
+            this.secondFork = rightFork;
+        } else {
+            this.firstFork = rightFork;
+            this.secondFork = leftFork;
+        }
     }
 
     @Override
@@ -71,21 +56,19 @@ class Philosopher extends Thread {
         try {
             while (running) {
                 think();
-                waiter.askForPermission();
+
+                // Zawsze podnosimy najpierw widelec o mniejszym ID
+                firstFork.pickUp();
                 try {
-                    leftFork.pickUp();
+                    // Następnie podnosimy widelec o wyższym ID
+                    secondFork.pickUp();
                     try {
-                        rightFork.pickUp();
-                        try {
-                            eat();
-                        } finally {
-                            rightFork.putDown();
-                        }
+                        eat();
                     } finally {
-                        leftFork.putDown();
+                        secondFork.putDown();
                     }
                 } finally {
-                    waiter.releaseForks();
+                    firstFork.putDown();
                 }
             }
         } catch (InterruptedException e) {
@@ -96,7 +79,7 @@ class Philosopher extends Thread {
 
     private void think() throws InterruptedException {
         System.out.println("Filozof " + id + " myśli.");
-        Thread.sleep((long) (Math.random() * 50)); // Krótszy czas usypiania dla większej liczby operacji
+        Thread.sleep((long) (Math.random() * 50));
     }
 
     private void eat() throws InterruptedException {
@@ -112,7 +95,7 @@ class Philosopher extends Thread {
 
     public void stopPhilosopher() {
         running = false;
-        this.interrupt(); // Przerywamy ewentualne oczekiwanie w sleep/wait
+        this.interrupt();
     }
 
     public long getTotalEatingTime() {
@@ -123,6 +106,7 @@ class Philosopher extends Thread {
         return id;
     }
 }
+
 
 public class DiningPhilosophers {
     static void main(String[] args) throws InterruptedException {
@@ -147,32 +131,25 @@ public class DiningPhilosophers {
             forks[i] = new Fork(i);
         }
 
-        Waiter waiter = new Waiter(numberOfPhilosophers - 1);
-
         Philosopher[] philosophers = new Philosopher[numberOfPhilosophers];
         for (int i = 0; i < numberOfPhilosophers; i++) {
             Fork leftFork = forks[i];
             Fork rightFork = forks[(i + 1) % numberOfPhilosophers];
-            philosophers[i] = new Philosopher(i, leftFork, rightFork, waiter);
+            philosophers[i] = new Philosopher(i, leftFork, rightFork);
             philosophers[i].start();
         }
 
-        // Czekanie na zakończenie wyznaczonego czasu
         Thread.sleep(runTimeMillis);
-
         System.out.println("Zatrzymywanie symulacji...");
 
-        // Wysyłanie sygnału stopu do wszystkich filozofów
         for (Philosopher p : philosophers) {
             p.stopPhilosopher();
         }
 
-        // Oczekiwanie na bezpieczne zakończenie wszystkich wątków
         for (Philosopher p : philosophers) {
             p.join();
         }
 
-        // Wyświetlenie wyników w formacie CSV
         System.out.println("ID_Filozofa, LacznyCzasJedzenia_ms");
         for (Philosopher p : philosophers) {
             System.out.println(p.getPhilosopherId() + "," + p.getTotalEatingTime());
