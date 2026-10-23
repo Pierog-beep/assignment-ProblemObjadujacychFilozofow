@@ -1,5 +1,7 @@
 package tymoteusz.kunicki;
 
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Scanner;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -29,16 +31,23 @@ class Fork {
 class Waiter {
     private int currentEating;
     private final int maxAllowed;
+    // Kolejka przechowująca oczekujące wątki w kolejności zgłoszeń
+    private final Queue<Thread> waitingQueue;
 
     public Waiter(int maxAllowed) {
         this.currentEating = 0;
         this.maxAllowed = maxAllowed;
+        this.waitingQueue = new LinkedList<>();
     }
 
     public synchronized void askForPermission() throws InterruptedException {
-        while (currentEating >= maxAllowed) {
+        Thread currentThread = Thread.currentThread();
+        waitingQueue.add(currentThread);
+
+        while (currentEating >= maxAllowed || waitingQueue.peek() != currentThread) {
             wait();
         }
+        waitingQueue.poll();
         currentEating++;
     }
 
